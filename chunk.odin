@@ -7,9 +7,9 @@ import linalg "core:math/linalg"
 
 CHUNK_DIM_X :: 32
 CHUNK_DIM_Y :: 32
-CHUNK_DIM_Z :: 16
+CHUNK_DIM_Z :: 20
 
-CHUNK_DISPLAY_POS_OFFSET :: rl.Vector3{CHUNK_DIM_X/2-0.5, CHUNK_DIM_Y/2-0.5, CHUNK_DIM_Z/2-0.5}
+CHUNK_DISPLAY_POS_OFFSET :: rl.Vector3{CHUNK_DIM_X/2-0.5, CHUNK_DIM_Y/2-0.5, CHUNK_DIM_Z/2-0.5 + 6}
 
 coord :: [3]i32
 
@@ -30,15 +30,15 @@ safe_get_block :: proc(ch: ^chunk, c: coord) -> ID {
     return ch[c.x][c.y][c.z]
 }
 
-generate_chunk :: proc(seed: i64) -> (ch: ^chunk) {
+generate_chunk :: proc(seed: i64, height_scale, threshold: f32, noise_scale: f64) -> (ch: ^chunk) {
     ch = new(chunk)
     for x in 0..<CHUNK_DIM_X {
     for y in 0..<CHUNK_DIM_Y {
     for z in 0..<CHUNK_DIM_Z {
         
-        noise_sample := noise.noise_3d_improve_xy(seed, {f64(x)/15,f64(y)/15,0})
+        noise_sample := noise.noise_3d_improve_xy(seed, {f64(x) * noise_scale/100,f64(y) * noise_scale/100,0})
 
-        if (noise_sample * 6 + f32(z)) > 7 {
+        if (noise_sample * height_scale + f32(z)) > threshold {
             ch[x][y][z] = .air
         } else {
             ch[x][y][z] = .solid
@@ -50,9 +50,19 @@ generate_chunk :: proc(seed: i64) -> (ch: ^chunk) {
 }
 
 display_chunk :: proc(ch: ^chunk) {
-    for x in 0..<CHUNK_DIM_X {
-    for y in 0..<CHUNK_DIM_Y {
-    for z in 0..<CHUNK_DIM_Z {
+    for x in i32(0)..<CHUNK_DIM_X {
+    for y in i32(0)..<CHUNK_DIM_Y {
+    for z in i32(0)..<CHUNK_DIM_Z {
+
+        // dont render invisible blocks
+        if  safe_get_block(ch, {x+1,y,z}) == .solid &&
+            safe_get_block(ch, {x-1,y,z}) == .solid &&
+            safe_get_block(ch, {x,y+1,z}) == .solid &&
+            safe_get_block(ch, {x,y-1,z}) == .solid &&
+            safe_get_block(ch, {x,y,z+1}) == .solid &&
+            safe_get_block(ch, {x,y,z-1}) == .solid {
+                continue
+        }
 
         cube_pos := rl.Vector3{f32(x),f32(y),f32(z)} - CHUNK_DISPLAY_POS_OFFSET
         
@@ -62,6 +72,12 @@ display_chunk :: proc(ch: ^chunk) {
                     {230, 230, 230, 1})
         color   := [4]u8{u8(f_color.r),u8(f_color.g),u8(f_color.b),u8(f_color.a)}
         wire_color :=  [4]u8{20, 20, 20, 0} + color
+
+        // f_color := ([4]f32{f32(z), f32(z), f32(z), 255} /
+        //             {CHUNK_DIM_Z, CHUNK_DIM_Z, CHUNK_DIM_Z, 1} *
+        //             {230, 230, 230, 1})
+        // color   := [4]u8{u8(f_color.r),u8(f_color.g),u8(f_color.b),u8(f_color.a)}
+        // wire_color :=  [4]u8{20, 20, 20, 0} + color
 
         switch ch[x][y][z] {
         case .solid:

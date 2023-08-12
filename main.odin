@@ -3,11 +3,15 @@ package pfind
 import rl   "vendor:raylib"
 import fmt  "core:fmt"
 import rand "core:math/rand"
+import pq     "core:container/priority_queue"
 
-SCREEN_WIDTH :: 1200
-SCREEN_HEIGHT :: 1000
+SCREEN_WIDTH :: 1000
+SCREEN_HEIGHT :: 800
 
-REGEN_INTERVAL :: 1
+FRAMES_PER_SEC :: 60
+ITER_PER_FRAME :: 1
+
+REGEN_WORLD :: false
 
 main :: proc() {
 
@@ -23,56 +27,67 @@ main :: proc() {
     camera.fovy       = 45
     camera.projection = .ORTHOGRAPHIC
 
-    rl.SetTargetFPS(60)
-
-    this_chunk := generate_chunk(rand.int63())
-
-    // generate start coordinate
-    start_coord : coord = {
-        rand.int31() % CHUNK_DIM_X,
-        rand.int31() % CHUNK_DIM_Y,
-        CHUNK_DIM_Z}
-    for safe_get_block(this_chunk, start_coord) != .solid {
-        start_coord.z -= 1
+    if FRAMES_PER_SEC != -1 {
+        rl.SetTargetFPS(FRAMES_PER_SEC)
     }
-    start_coord.z += 1
-    
-    // generate end/goal coordinate
-    end_coord : coord = { rand.int31() % CHUNK_DIM_X, rand.int31() % CHUNK_DIM_Y, CHUNK_DIM_Z}
-    for safe_get_block(this_chunk, end_coord) != .solid {
-        end_coord.z -= 1
-    }
-    end_coord.z += 1
 
-    path := a_star(this_chunk, start_coord, end_coord)
+    this_chunk := generate_chunk(
+        rand.int63(), 
+        height_scale = 5, 
+        threshold = 7, 
+        noise_scale = 20,
+    )
+
+    start_coord := random_ground_coord(this_chunk)
+    end_coord := random_ground_coord(this_chunk)
+
+    path := a_star_init(this_chunk, start_coord, end_coord)
 
     // main display loop
-    regen_time := 0.0
     for !rl.WindowShouldClose() {
+        //rl.UpdateCamera(&camera, .THIRD_PERSON)
         rl.UpdateCamera(&camera, .ORBITAL)
-        //rl.UpdateCameraPro(&camera, {0,0,0}, {}, 0)
+        //rl.UpdateCameraPro(&camera, {0,0,0}, {0,0,0}, 1)
 
         rl.BeginDrawing()
         rl.ClearBackground(rl.BLACK)
         rl.BeginMode3D(camera)
 
-            // regenerate
-            if rl.GetTime() > regen_time + REGEN_INTERVAL {
-                regen_time = rl.GetTime()
+            if !path.finished {
+                for i in 0..<ITER_PER_FRAME {
+                    a_star_iter(&path)
+                    if path.finished do break
+                }
+            } else {
+                if REGEN_WORLD {
+                    free(this_chunk)
+                    this_chunk = generate_chunk(
+                        rand.int63(), 
+                        height_scale = 5, 
+                        threshold = 11, 
+                        noise_scale = 20,
+                    )
+                }
 
-                free(this_chunk) // deallocate previous chunk
-                this_chunk = generate_chunk(rand.int63())
+                if path.found {
+                    start_coord = end_coord
+                } else {
+                    start_coord = random_ground_coord(this_chunk)
+                }
 
-                start_coord = random_ground_coord(this_chunk)
                 end_coord = random_ground_coord(this_chunk)
 
-                delete(path.path_tree) // deallocate previous path tree
-                path = a_star(this_chunk, start_coord, end_coord)
+                delete(path.came_from)
+                delete(path.g_score)
+                delete(f_score)
+                pq.destroy(&path.open_set)
+                delete(path.path)
 
+                path = a_star_init(this_chunk, start_coord, end_coord)
             }
 
             display_chunk(this_chunk)
-            display_path(path)
+            display_path(path,true, 10)
 
         rl.EndMode3D()
         rl.EndDrawing()
