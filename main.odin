@@ -5,17 +5,28 @@ import fmt  "core:fmt"
 import rand "core:math/rand"
 import pq     "core:container/priority_queue"
 
-SCREEN_WIDTH :: 1000
+SCREEN_WIDTH :: 1500
 SCREEN_HEIGHT :: 800
 
-FRAMES_PER_SEC :: 60
-ITER_PER_FRAME :: 1
+FRAMES_PER_SEC        :: -1
+WAIT_AFTER_FINISHED   :: 0.6
+DRAW_SECONDARY_PATH   :: true
+SECONDARY_PATH_HEIGHT :: 15
+DRAW_ONLY_TOP         :: false
 
-REGEN_WORLD :: false
+HEURISTIC_WEIGHT     :: 1.7
+NODE_ABORT_THRESHOLD :: 1000
+ITER_PER_FRAME       :: 1
+
+REGEN_WORLD           :: false
+CHUNK_HEIGHT_SCALE    :: 13
+CHUNK_SOLID_THRESHOLD :: 7
+CHUNK_NOISE_SCALE     :: 10
 
 main :: proc() {
 
     rl.SetTraceLogLevel(.ERROR)
+    rl.SetConfigFlags({.WINDOW_RESIZABLE})
 
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pfind")
 
@@ -33,17 +44,18 @@ main :: proc() {
 
     this_chunk := generate_chunk(
         rand.int63(), 
-        height_scale = 5, 
-        threshold = 7, 
-        noise_scale = 20,
+        height_scale = CHUNK_HEIGHT_SCALE,
+        threshold = CHUNK_SOLID_THRESHOLD, 
+        noise_scale = CHUNK_NOISE_SCALE,
     )
 
     start_coord := random_ground_coord(this_chunk)
     end_coord := random_ground_coord(this_chunk)
 
-    path := a_star_init(this_chunk, start_coord, end_coord)
+    path := a_star_init(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, NODE_ABORT_THRESHOLD)
 
     // main display loop
+    stopwatch := rl.GetTime()
     for !rl.WindowShouldClose() {
         //rl.UpdateCamera(&camera, .THIRD_PERSON)
         rl.UpdateCamera(&camera, .ORBITAL)
@@ -53,23 +65,27 @@ main :: proc() {
         rl.ClearBackground(rl.BLACK)
         rl.BeginMode3D(camera)
 
-            if !path.finished {
+            if path.status == .exploring || path.status == .initialized {
                 for i in 0..<ITER_PER_FRAME {
                     a_star_iter(&path)
-                    if path.finished do break
+                    if has_finished(&path) {
+                        stopwatch = rl.GetTime()
+                        break
+                    }
                 }
-            } else {
+            } else if stopwatch + WAIT_AFTER_FINISHED < rl.GetTime() {
+
                 if REGEN_WORLD {
                     free(this_chunk)
                     this_chunk = generate_chunk(
                         rand.int63(), 
-                        height_scale = 5, 
-                        threshold = 11, 
-                        noise_scale = 20,
+                        height_scale = CHUNK_HEIGHT_SCALE,
+                        threshold = CHUNK_SOLID_THRESHOLD,
+                        noise_scale = CHUNK_NOISE_SCALE,
                     )
                 }
 
-                if path.found {
+                if has_succeeded(&path) {
                     start_coord = end_coord
                 } else {
                     start_coord = random_ground_coord(this_chunk)
@@ -83,13 +99,31 @@ main :: proc() {
                 pq.destroy(&path.open_set)
                 delete(path.path)
 
-                path = a_star_init(this_chunk, start_coord, end_coord)
+                path = a_star_init(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, NODE_ABORT_THRESHOLD)
             }
 
             display_chunk(this_chunk)
-            display_path(path,true, 10)
+            display_path(&path, DRAW_SECONDARY_PATH, SECONDARY_PATH_HEIGHT)
 
         rl.EndMode3D()
+
+        rl.DrawText("status: ", 10, 10, 20, rl.RAYWHITE);
+        status_color := rl.LIGHTGRAY
+        if has_failed(&path) {
+            status_color = rl.RED
+        } else if has_succeeded(&path) {
+            status_color = rl.GREEN
+        }
+        rl.DrawText(fmt.ctprintf("%s", path.status), 90, 10, 20, status_color);
+
+        rl.DrawText(fmt.ctprintf("path length: %d", len(path.path)), 10, 30, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("nodes explored: %d", len(path.came_from)), 10, 50, 20, rl.RAYWHITE);
+
+        rl.DrawText("start:", 10, 90, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("%v", path.start), 80, 90, 20, rl.RAYWHITE);
+        rl.DrawText("goal:", 10, 110, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("%v", path.goal), 80, 110, 20, rl.RAYWHITE);
+
         rl.EndDrawing()
     }
 }

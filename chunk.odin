@@ -5,8 +5,8 @@ import fmt    "core:fmt"
 import noise  "core:math/noise"
 import linalg "core:math/linalg"
 
-CHUNK_DIM_X :: 32
-CHUNK_DIM_Y :: 32
+CHUNK_DIM_X :: 50
+CHUNK_DIM_Y :: 50
 CHUNK_DIM_Z :: 20
 
 CHUNK_DISPLAY_POS_OFFSET :: rl.Vector3{CHUNK_DIM_X/2-0.5, CHUNK_DIM_Y/2-0.5, CHUNK_DIM_Z/2-0.5 + 6}
@@ -43,6 +43,10 @@ generate_chunk :: proc(seed: i64, height_scale, threshold: f32, noise_scale: f64
         } else {
             ch[x][y][z] = .solid
         }
+
+        if z == 0 {
+            ch[x][y][z] = .solid
+        }
     }
     }
     }
@@ -55,12 +59,17 @@ display_chunk :: proc(ch: ^chunk) {
     for z in i32(0)..<CHUNK_DIM_Z {
 
         // dont render invisible blocks
-        if  safe_get_block(ch, {x+1,y,z}) == .solid &&
+        if  !DRAW_ONLY_TOP &&
+            safe_get_block(ch, {x+1,y,z}) == .solid &&
             safe_get_block(ch, {x-1,y,z}) == .solid &&
             safe_get_block(ch, {x,y+1,z}) == .solid &&
             safe_get_block(ch, {x,y-1,z}) == .solid &&
             safe_get_block(ch, {x,y,z+1}) == .solid &&
             safe_get_block(ch, {x,y,z-1}) == .solid {
+                continue
+        } else if DRAW_ONLY_TOP &&
+            (safe_get_block(ch, {x,y,z})   != .solid ||
+            safe_get_block(ch, {x,y,z+1}) != .air) {
                 continue
         }
 
