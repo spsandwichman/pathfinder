@@ -5,8 +5,8 @@ import fmt  "core:fmt"
 import rand "core:math/rand"
 import pq     "core:container/priority_queue"
 
-SCREEN_WIDTH :: 1500
-SCREEN_HEIGHT :: 800
+SCREEN_WIDTH :: 1600
+SCREEN_HEIGHT :: 900
 
 FRAMES_PER_SEC        :: -1
 WAIT_AFTER_FINISHED   :: 0.5
@@ -16,12 +16,12 @@ DRAW_ONLY_TOP         :: false
 
 HEURISTIC_WEIGHT     :: 1.5
 NODE_ABORT_THRESHOLD :: 1000
-ITER_PER_FRAME       :: 1
+ITER_PER_FRAME       :: 2
 
 REGEN_WORLD           :: false
-CHUNK_HEIGHT_SCALE    :: 10
+CHUNK_HEIGHT_SCALE    :: 12
 CHUNK_SOLID_THRESHOLD :: 7
-CHUNK_NOISE_SCALE     :: 15
+CHUNK_NOISE_SCALE     :: 10
 
 main :: proc() {
 
@@ -112,15 +112,16 @@ main :: proc() {
         }
         rl.DrawText(fmt.ctprintf("%s", path.status), 90, 10, 20, status_color);
 
-        rl.DrawText(fmt.ctprintf("path length: %d", len(path.path)), 10, 30, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("path length: %d nodes", len(path.path)), 10, 30, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("path distance: %.1fm", path_distance(path)), 10, 50, 20, rl.RAYWHITE);
-        rl.DrawText(fmt.ctprintf("nodes explored: %d (%.1f%%)", len(path.came_from), f64(len(path.came_from))*100/f64(CHUNK_DIM_X*CHUNK_DIM_Y)), 10, 70, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("nodes explored: %d (%.1f%% of world)", len(path.came_from), f64(len(path.came_from))*100/f64(CHUNK_DIM_X*CHUNK_DIM_Y)), 10, 70, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("iterations: %d", path.iteration_count), 10, 90, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("iterations/sec: %d", rl.GetFPS()*ITER_PER_FRAME), 10, 110, 20, rl.RAYWHITE);
 
-        rl.DrawText("start:", 10, 130, 20, rl.RAYWHITE);
-        rl.DrawText(fmt.ctprintf("%v", path.start), 80, 130, 20, rl.RAYWHITE);
-        rl.DrawText("goal:", 10, 150, 20, rl.RAYWHITE);
-        rl.DrawText(fmt.ctprintf("%v", path.goal), 80, 150, 20, rl.RAYWHITE);
+        rl.DrawText("start:", 10, 200, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("%v", path.start), 80, 200, 20, rl.RAYWHITE);
+        rl.DrawText("goal:", 10, 220, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("%v", path.goal), 80, 220, 20, rl.RAYWHITE);
 
 
         rl.EndDrawing()
