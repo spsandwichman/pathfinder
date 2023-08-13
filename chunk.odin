@@ -82,9 +82,12 @@ display_chunk :: proc(ch: ^chunk) {
         color   := [4]u8{u8(f_color.r),u8(f_color.g),u8(f_color.b),u8(f_color.a)}
         wire_color :=  [4]u8{20, 20, 20, 0} + color
 
+        // min_brightness : f32 = 10
+        // max_brightness : f32 = 150
         // f_color := ([4]f32{f32(z), f32(z), f32(z), 255} /
         //             {CHUNK_DIM_Z, CHUNK_DIM_Z, CHUNK_DIM_Z, 1} *
-        //             {230, 230, 230, 1})
+        //             {max_brightness, max_brightness, max_brightness, 1} + 
+        //             {min_brightness, min_brightness, min_brightness, 0})
         // color   := [4]u8{u8(f_color.r),u8(f_color.g),u8(f_color.b),u8(f_color.a)}
         // wire_color :=  [4]u8{20, 20, 20, 0} + color
 

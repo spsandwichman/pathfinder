@@ -18,40 +18,47 @@ a_star_status :: enum u8 {
 }
 
 a_star_instance :: struct {
-    start     : coord,
-    goal      : coord,
-    path      : []coord,
-    chunk     : ^chunk,
-    came_from : map[coord]coord,
-    g_score   : map[coord]f64,
-    open_set  : pq.Priority_Queue(coord),
-    status    : a_star_status,
-    h_weight  : f64,
-    failure_threshold : int,
+    start           : coord,
+    goal            : coord,
+    current         : coord,
+    path            : [dynamic]coord,
+    chunk           : ^chunk,
+    came_from       : map[coord]coord,
+    g_score         : map[coord]f64,
+    open_set        : pq.Priority_Queue(coord),
+    status          : a_star_status,
+    h_weight        : f64,
+    abort_threshold : int,
+    iteration_count : u64,
 }
 
-reconstruct_path :: proc(came_from:^map[coord]coord, goal: coord) -> []coord {
-    current := goal
-    path := make([dynamic]coord)
-    append(&path, current)
-    for (current in came_from) {
-        current = came_from[current]
-        inject_at(&path, 0, current)
+reconstruct_path :: proc(info: ^a_star_instance) {
+    current := info.current
+    delete(info.path)
+    info.path = make([dynamic]coord)
+    append(&info.path, current)
+    for (current in info.came_from) {
+        current = info.came_from[current]
+        inject_at(&info.path, 0, current)
     }
-    return path[:]
+    return
 }
 
 f_score : map[coord]f64 
 // in global scope so that the priority queue "less" function can see it
 // fix later please
 
-a_star_init :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_threshold: int) -> (info: a_star_instance) {
+a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_threshold: int) -> (info: ^a_star_instance) {
+    info = new(a_star_instance)
+
     info.start = start
     info.goal  = goal
     info.chunk = ch
     info.status = .initialized
     info.h_weight = h_weight
-    info.failure_threshold = failure_threshold
+    info.abort_threshold = failure_threshold
+
+    info.path = make([dynamic]coord)
 
     info.came_from = make(map[coord]coord)
     //defer delete(came_from)
@@ -77,8 +84,9 @@ a_star_init :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_thres
 a_star_iter :: proc(info: ^a_star_instance) {
 
     info.status = .exploring
+    info.iteration_count += 1
 
-    if info.failure_threshold != -1 && len(info.came_from) > info.failure_threshold {
+    if info.abort_threshold != -1 && len(info.came_from) > info.abort_threshold {
         info.status = .failure_max_nodes_explored
         return
     }
@@ -86,18 +94,20 @@ a_star_iter :: proc(info: ^a_star_instance) {
     if pq.len(info.open_set) > 0 {
 
         // current is the node in open_set having the lowest f_score
-        current := pq.pop(&info.open_set)
-        if current == info.goal {
-            info.path = reconstruct_path(&info.came_from, info.goal)
+        info.current = pq.pop(&info.open_set)
+        if info.current == info.goal {
+            reconstruct_path(info)
             info.status = .success_path_found
             return
         }
-        info.path = reconstruct_path(&info.came_from, current)
+        reconstruct_path(info)
 
-        for neighbor in traversable_neighbors(info.chunk, current) {
-            tentative_g_score := safe_access(info.g_score, current) + dist(current, neighbor)
+        neighbors := traversable_neighbors(info.chunk, info.current)
+        defer delete(neighbors)
+        for neighbor in neighbors {
+            tentative_g_score := safe_access(info.g_score, info.current) + dist(info.current, neighbor)
             if tentative_g_score < safe_access(info.g_score, neighbor) {
-                info.came_from[neighbor] = current
+                info.came_from[neighbor] = info.current
                 info.g_score[neighbor] = tentative_g_score
                 f_score[neighbor] = tentative_g_score + heuristic(neighbor, info.goal, info.h_weight)
                 add_if_not_exists(&info.open_set, neighbor)
@@ -108,6 +118,15 @@ a_star_iter :: proc(info: ^a_star_instance) {
         return
     }
     return
+}
+
+a_star_cleanup :: proc(info: ^a_star_instance) {
+    delete(info.path)
+    delete(info.came_from)
+    delete(info.g_score)
+    delete(f_score)
+    pq.destroy(&info.open_set)
+    free(info)
 }
 
 safe_access :: proc(m: map[$T]$R, c: T) -> R { return (c in m ? m[c] : BASICALLY_INFINITY)}
@@ -138,7 +157,7 @@ dist :: proc(s, e: coord) -> f64 {
     return abs(linalg.vector_length(diff))
 }
 
-traversable_neighbors :: proc(ch: ^chunk, pos: coord) -> []coord {
+traversable_neighbors :: proc(ch: ^chunk, pos: coord) -> [dynamic]coord {
     n := make([dynamic]coord, 0, 8)
     for x in i32(-1)..=1 {
     for y in i32(-1)..=1 {
@@ -162,7 +181,7 @@ traversable_neighbors :: proc(ch: ^chunk, pos: coord) -> []coord {
         }
     }
     }
-    return n[:]
+    return n
 }
 
 display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32) {
@@ -176,6 +195,7 @@ display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: 
             dist_grad := dist(path.start, seg_start)/dist(path.start, path.goal)
 
             col := rl.RAYWHITE //interpolate_color(rl.GREEN, rl.BLUE, dist_grad)
+
             if has_succeeded(path) {
                 col = rl.GREEN
             }
@@ -229,7 +249,12 @@ display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: 
     }
 }
 
-path_real_length :: proc(path: ^a_star_instance)
+path_distance :: proc(path: ^a_star_instance) -> (distance: f64) {
+    for i in 0..<len(path.path)-1 {
+        distance += dist(path.path[i],path.path[i+1])
+    }
+    return
+}
 
 has_finished :: proc(path: ^a_star_instance) -> bool{
     return (path.status == .success_path_found ||
