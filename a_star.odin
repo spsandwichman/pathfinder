@@ -9,12 +9,12 @@ import pq     "core:container/priority_queue"
 BASICALLY_INFINITY :: 100000000000000000
 
 a_star_status :: enum u8 {
-    uninitialized,              // default: instance has not been initialized
-    initialized,                // instance has been initialized
-    exploring,                  // instance is currently exploring
-    success_path_found,         // instance has found a suitable path
-    failure_no_path_available,  // instance has explored all nodes and no suitable path exists
-    failure_max_nodes_explored, // instance has reached its abort threshold for nodes explored
+    uninitialized,               // default: instance has not been initialized
+    initialized,                 // instance has been initialized
+    exploring,                   // instance is currently exploring
+    success_path_found,          // instance has found a suitable path
+    failure_no_path_exists,      // instance has explored all nodes and no suitable path exists
+    failure_too_tired,           // instance has reached its iteration abort threshold
 }
 
 a_star_instance :: struct {
@@ -28,7 +28,7 @@ a_star_instance :: struct {
     open_set        : pq.Priority_Queue(coord),
     status          : a_star_status,
     h_weight        : f64,
-    abort_threshold : int,
+    abort_threshold : u64,
     iteration_count : u64,
 }
 
@@ -48,7 +48,7 @@ f_score : map[coord]f64
 // in global scope so that the priority queue "less" function can see it
 // fix later please
 
-a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_threshold: int) -> (info: ^a_star_instance) {
+a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_threshold: u64) -> (info: ^a_star_instance) {
     info = new(a_star_instance)
 
     info.start = start
@@ -86,8 +86,8 @@ a_star_iter :: proc(info: ^a_star_instance) {
     info.status = .exploring
     info.iteration_count += 1
 
-    if info.abort_threshold != -1 && len(info.came_from) > info.abort_threshold {
-        info.status = .failure_max_nodes_explored
+    if info.abort_threshold != 0 && info.iteration_count > info.abort_threshold {
+        info.status = .failure_too_tired
         return
     }
 
@@ -114,7 +114,7 @@ a_star_iter :: proc(info: ^a_star_instance) {
             }
         }
     } else {
-        info.status = .failure_no_path_available
+        info.status = .failure_no_path_exists
         return
     }
     return
@@ -233,7 +233,7 @@ display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: 
 
     // path tree explored
     path_tree_color := rl.Color{255, 255, 255, 50}
-    if path.status == .failure_no_path_available || path.status == .failure_max_nodes_explored {
+    if has_failed(path) {
         path_tree_color = {230, 41, 55, 200}
     }
     for to, from in path.came_from {
@@ -258,13 +258,13 @@ path_distance :: proc(path: ^a_star_instance) -> (distance: f64) {
 
 has_finished :: proc(path: ^a_star_instance) -> bool{
     return (path.status == .success_path_found ||
-            path.status == .failure_max_nodes_explored ||
-            path.status == .failure_no_path_available)
+            path.status == .failure_too_tired ||
+            path.status == .failure_no_path_exists)
 }
 
 has_failed :: proc(path: ^a_star_instance) -> bool {
-    return (path.status == .failure_max_nodes_explored ||
-            path.status == .failure_no_path_available)
+    return (path.status == .failure_too_tired ||
+            path.status == .failure_no_path_exists)
 }
 
 has_succeeded :: proc(path: ^a_star_instance) -> bool {

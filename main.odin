@@ -8,15 +8,15 @@ import pq     "core:container/priority_queue"
 SCREEN_WIDTH :: 1600
 SCREEN_HEIGHT :: 900
 
-FRAMES_PER_SEC        :: -1
+FRAMES_PER_SEC        :: 0
 WAIT_AFTER_FINISHED   :: 0.5
 DRAW_SECONDARY_PATH   :: true
 SECONDARY_PATH_HEIGHT :: 15
 DRAW_ONLY_TOP         :: false
 
-HEURISTIC_WEIGHT     :: 1.5
-NODE_ABORT_THRESHOLD :: 1000
-ITER_PER_FRAME       :: 2
+HEURISTIC_WEIGHT     :: 2
+ITER_ABORT_THRESHOLD :: 1000
+ITER_PER_FRAME       :: 1
 
 REGEN_WORLD           :: false
 CHUNK_HEIGHT_SCALE    :: 12
@@ -38,7 +38,7 @@ main :: proc() {
     camera.fovy       = 45
     camera.projection = .ORTHOGRAPHIC
 
-    if FRAMES_PER_SEC != -1 {
+    if FRAMES_PER_SEC != 0 {
         rl.SetTargetFPS(FRAMES_PER_SEC)
     }
 
@@ -52,7 +52,7 @@ main :: proc() {
     start_coord := random_ground_coord(this_chunk)
     end_coord := random_ground_coord(this_chunk)
 
-    path := a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, NODE_ABORT_THRESHOLD)
+    path := a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, ITER_ABORT_THRESHOLD)
 
     // main display loop
     stopwatch := rl.GetTime()
@@ -95,7 +95,7 @@ main :: proc() {
 
                 a_star_cleanup(path)
 
-                path = a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, NODE_ABORT_THRESHOLD)
+                path = a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, ITER_ABORT_THRESHOLD)
             }
 
             display_chunk(this_chunk)
@@ -115,7 +115,7 @@ main :: proc() {
         rl.DrawText(fmt.ctprintf("path length: %d nodes", len(path.path)), 10, 30, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("path distance: %.1fm", path_distance(path)), 10, 50, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("nodes explored: %d (%.1f%% of world)", len(path.came_from), f64(len(path.came_from))*100/f64(CHUNK_DIM_X*CHUNK_DIM_Y)), 10, 70, 20, rl.RAYWHITE);
-        rl.DrawText(fmt.ctprintf("iterations: %d", path.iteration_count), 10, 90, 20, rl.RAYWHITE);
+        rl.DrawText(fmt.ctprintf("iterations: %d / %d", path.iteration_count, ITER_ABORT_THRESHOLD), 10, 90, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("iterations/sec: %d", rl.GetFPS()*ITER_PER_FRAME), 10, 110, 20, rl.RAYWHITE);
 
         rl.DrawText("start:", 10, 200, 20, rl.RAYWHITE);
