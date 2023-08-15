@@ -4,7 +4,6 @@ import rl     "vendor:raylib"
 import fmt    "core:fmt"
 import noise  "core:math/noise"
 import linalg "core:math/linalg"
-import pq     "core:container/priority_queue"
 
 BASICALLY_INFINITY :: 100000000000000000
 
@@ -14,7 +13,7 @@ a_star_status :: enum u8 {
     exploring,                   // instance is currently exploring
     success_path_found,          // instance has found a suitable path
     failure_no_path_exists,      // instance has explored all nodes and no suitable path exists
-    failure_too_tired,           // instance has reached its iteration abort threshold
+    failure_timed_out,           // instance has reached its iteration abort threshold
 }
 
 a_star_instance :: struct {
@@ -25,7 +24,8 @@ a_star_instance :: struct {
     chunk           : ^chunk,
     came_from       : map[coord]coord,
     g_score         : map[coord]f64,
-    open_set        : pq.Priority_Queue(coord),
+    f_score         : map[coord]f64,
+    open_set        : pqueue,
     status          : a_star_status,
     h_weight        : f64,
     abort_threshold : u64,
@@ -44,11 +44,7 @@ reconstruct_path :: proc(info: ^a_star_instance) {
     return
 }
 
-f_score : map[coord]f64 
-// in global scope so that the priority queue "less" function can see it
-// fix later please
-
-a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_threshold: u64) -> (info: ^a_star_instance) {
+a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64 = 1, failure_threshold: u64 = 0) -> (info: ^a_star_instance) {
     info = new(a_star_instance)
 
     info.start = start
@@ -69,16 +65,19 @@ a_star_create :: proc(ch: ^chunk, start, goal: coord, h_weight: f64, failure_thr
 
     // f_score[n] represents our current best guess as to how cheap a 
     // path could be from start to finish if it goes through n.
-    f_score = make(map[coord]f64)
-    f_score[start] = heuristic(start, goal, info.h_weight)
+    info.f_score = make(map[coord]f64)
+    info.f_score[start] = heuristic(start, goal, info.h_weight)
 
-    pq_coord_less :: proc(a, b: coord) -> bool {
-        return safe_access(f_score, a) < safe_access(f_score, b)
-    }
-    pq.init(&info.open_set, pq_coord_less, pq.default_swap_proc(coord))
-    pq.push(&info.open_set, start)
+    init(&info.open_set, &(info.f_score))
+    push(&info.open_set, start)
 
     return
+}
+
+a_star_complete :: proc(info: ^a_star_instance) {
+    for !has_finished(info) {
+        a_star_iter(info)
+    }
 }
 
 a_star_iter :: proc(info: ^a_star_instance) {
@@ -87,14 +86,14 @@ a_star_iter :: proc(info: ^a_star_instance) {
     info.iteration_count += 1
 
     if info.abort_threshold != 0 && info.iteration_count > info.abort_threshold {
-        info.status = .failure_too_tired
+        info.status = .failure_timed_out
         return
     }
 
-    if pq.len(info.open_set) > 0 {
+    if length(info.open_set) > 0 {
 
         // current is the node in open_set having the lowest f_score
-        info.current = pq.pop(&info.open_set)
+        info.current = pop(&info.open_set)
         if info.current == info.goal {
             reconstruct_path(info)
             info.status = .success_path_found
@@ -109,7 +108,7 @@ a_star_iter :: proc(info: ^a_star_instance) {
             if tentative_g_score < safe_access(info.g_score, neighbor) {
                 info.came_from[neighbor] = info.current
                 info.g_score[neighbor] = tentative_g_score
-                f_score[neighbor] = tentative_g_score + heuristic(neighbor, info.goal, info.h_weight)
+                info.f_score[neighbor] = tentative_g_score + heuristic(neighbor, info.goal, info.h_weight)
                 add_if_not_exists(&info.open_set, neighbor)
             }
         }
@@ -124,15 +123,15 @@ a_star_cleanup :: proc(info: ^a_star_instance) {
     delete(info.path)
     delete(info.came_from)
     delete(info.g_score)
-    delete(f_score)
-    pq.destroy(&info.open_set)
+    delete(info.f_score)
+    destroy(&info.open_set)
     free(info)
 }
 
 safe_access :: proc(m: map[$T]$R, c: T) -> R { return (c in m ? m[c] : BASICALLY_INFINITY)}
 
 // definitely a better way to do this
-add_if_not_exists :: proc(q: ^pq.Priority_Queue($T), i: T) {
+add_if_not_exists :: proc(q: ^pqueue, i: coord) {
     does_exist := false
     for item in q.queue {
         if item == i {
@@ -141,7 +140,7 @@ add_if_not_exists :: proc(q: ^pq.Priority_Queue($T), i: T) {
         }
     }
     if !does_exist {
-        pq.push(q, i)
+        push(q, i)
     }
 }
 
@@ -184,53 +183,7 @@ traversable_neighbors :: proc(ch: ^chunk, pos: coord) -> [dynamic]coord {
     return n
 }
 
-display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32) {
-
-    // path traversed
-    if path.status == .exploring || has_succeeded(path) {
-        for i in 0..<len(path.path)-1 {
-            seg_start := path.path[i]
-            seg_end   := path.path[i+1]
-
-            dist_grad := dist(path.start, seg_start)/dist(path.start, path.goal)
-
-            col := rl.RAYWHITE //interpolate_color(rl.GREEN, rl.BLUE, dist_grad)
-
-            if has_succeeded(path) {
-                col = rl.GREEN
-            }
-
-            cube_pos := rl.Vector3{f32(seg_start.x),f32(seg_start.y),f32(seg_start.z)} - CHUNK_DISPLAY_POS_OFFSET
-            rl.DrawCubeV(cube_pos, {0.2, 0.2, 0.2}, col)
-
-            seg_start_pos := rl.Vector3{f32(seg_start.x),f32(seg_start.y),f32(seg_start.z)} - CHUNK_DISPLAY_POS_OFFSET
-            seg_end_pos   := rl.Vector3{f32(seg_end.x),f32(seg_end.y),f32(seg_end.z)} - CHUNK_DISPLAY_POS_OFFSET
-            rl.DrawLine3D(seg_start_pos, seg_end_pos, col)
-
-            if secondary {
-                rl.DrawCubeV(cube_pos + {0,0,f32(secondary_offset)}, {0.2, 0.2, 0.2}, col)
-                rl.DrawLine3D(seg_start_pos + {0,0,f32(secondary_offset)}, seg_end_pos + {0,0,f32(secondary_offset)}, col)
-            }
-        }
-    }
-
-    // goal and start
-    start_color      := rl.BLUE      //rl.RAYWHITE
-    start_wire_color := rl.DARKBLUE  //rl.GRAY
-    goal_color       := rl.GREEN     //rl.RAYWHITE
-    goal_wire_color  := rl.DARKGREEN //rl.GRAY
-    display_block_wire(path.start, start_wire_color)
-    display_block_wire(path.goal, goal_wire_color)
-    display_block(path.start, start_color)
-    display_block(path.goal, goal_color)
-    if secondary {
-        display_block_wire(path.start + {0,0,secondary_offset}, start_wire_color)
-        display_block_wire(path.goal + {0,0,secondary_offset}, goal_wire_color)
-        display_block(path.start + {0,0,secondary_offset}, start_color)
-        display_block(path.goal + {0,0,secondary_offset}, goal_color)
-    }
-
-
+display_visited :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32) {
     // path tree explored
     path_tree_color := rl.Color{255, 255, 255, 50}
     if has_failed(path) {
@@ -249,6 +202,59 @@ display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: 
     }
 }
 
+display_waypoints :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32) {
+    // goal and start
+    start_color      := rl.BLUE      //rl.RAYWHITE
+    start_wire_color := rl.DARKBLUE  //rl.GRAY
+    goal_color       := rl.GREEN     //rl.RAYWHITE
+    goal_wire_color  := rl.DARKGREEN //rl.GRAY
+    display_block_wire(path.start, start_wire_color)
+    display_block_wire(path.goal, goal_wire_color)
+    display_block(path.start, start_color)
+    display_block(path.goal, goal_color)
+    if secondary {
+        display_block_wire(path.start + {0,0,secondary_offset}, start_wire_color)
+        display_block_wire(path.goal + {0,0,secondary_offset}, goal_wire_color)
+        display_block(path.start + {0,0,secondary_offset}, start_color)
+        display_block(path.goal + {0,0,secondary_offset}, goal_color)
+    }
+}
+
+display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32, color_override : rl.Color = {0,0,0,0}) {
+
+    // path traversed
+    if path.status == .exploring || has_succeeded(path) {
+        for i in 0..<len(path.path)-1 {
+            seg_start := path.path[i]
+            seg_end   := path.path[i+1]
+
+            dist_grad := dist(path.start, seg_start)/dist(path.start, path.goal)
+
+            col := rl.RAYWHITE //interpolate_color(rl.GREEN, rl.BLUE, dist_grad)
+
+            if has_succeeded(path) {
+                col = rl.GREEN
+            }
+
+            if color_override != {0,0,0,0} {
+                col = color_override
+            }
+
+            cube_pos := rl.Vector3{f32(seg_start.x),f32(seg_start.y),f32(seg_start.z)} - CHUNK_DISPLAY_POS_OFFSET
+            rl.DrawCubeV(cube_pos, {0.2, 0.2, 0.2}, col)
+
+            seg_start_pos := rl.Vector3{f32(seg_start.x),f32(seg_start.y),f32(seg_start.z)} - CHUNK_DISPLAY_POS_OFFSET
+            seg_end_pos   := rl.Vector3{f32(seg_end.x),f32(seg_end.y),f32(seg_end.z)} - CHUNK_DISPLAY_POS_OFFSET
+            rl.DrawLine3D(seg_start_pos, seg_end_pos, col)
+
+            if secondary {
+                rl.DrawCubeV(cube_pos + {0,0,f32(secondary_offset)}, {0.2, 0.2, 0.2}, col)
+                rl.DrawLine3D(seg_start_pos + {0,0,f32(secondary_offset)}, seg_end_pos + {0,0,f32(secondary_offset)}, col)
+            }
+        }
+    }
+}
+
 path_distance :: proc(path: ^a_star_instance) -> (distance: f64) {
     for i in 0..<len(path.path)-1 {
         distance += dist(path.path[i],path.path[i+1])
@@ -258,12 +264,12 @@ path_distance :: proc(path: ^a_star_instance) -> (distance: f64) {
 
 has_finished :: proc(path: ^a_star_instance) -> bool{
     return (path.status == .success_path_found ||
-            path.status == .failure_too_tired ||
+            path.status == .failure_timed_out ||
             path.status == .failure_no_path_exists)
 }
 
 has_failed :: proc(path: ^a_star_instance) -> bool {
-    return (path.status == .failure_too_tired ||
+    return (path.status == .failure_timed_out ||
             path.status == .failure_no_path_exists)
 }
 

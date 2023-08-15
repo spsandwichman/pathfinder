@@ -3,7 +3,7 @@ package pfind
 import rl   "vendor:raylib"
 import fmt  "core:fmt"
 import rand "core:math/rand"
-import pq     "core:container/priority_queue"
+import pq   "core:container/priority_queue"
 
 SCREEN_WIDTH :: 1600
 SCREEN_HEIGHT :: 900
@@ -14,19 +14,20 @@ DRAW_SECONDARY_PATH   :: true
 SECONDARY_PATH_HEIGHT :: 15
 DRAW_ONLY_TOP         :: false
 
-HEURISTIC_WEIGHT     :: 2
-ITER_ABORT_THRESHOLD :: 1000
+HEURISTIC_WEIGHT     :: 1.5
+ITER_ABORT_THRESHOLD :: 1500
 ITER_PER_FRAME       :: 1
 
 REGEN_WORLD           :: false
-CHUNK_HEIGHT_SCALE    :: 12
+CHUNK_HEIGHT_SCALE    :: 5
 CHUNK_SOLID_THRESHOLD :: 7
-CHUNK_NOISE_SCALE     :: 10
+CHUNK_NOISE_SCALE     :: 20
 
 main :: proc() {
 
     rl.SetTraceLogLevel(.ERROR)
     rl.SetConfigFlags({.WINDOW_RESIZABLE})
+    //rl.SetConfigFlags({.})
 
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pfind")
 
@@ -54,6 +55,9 @@ main :: proc() {
 
     path := a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, ITER_ABORT_THRESHOLD)
 
+    best_path := a_star_create(this_chunk, start_coord, end_coord, 0)
+    a_star_complete(best_path)
+
     // main display loop
     stopwatch := rl.GetTime()
     for !rl.WindowShouldClose() {
@@ -75,8 +79,9 @@ main :: proc() {
                 }
             } else if stopwatch + WAIT_AFTER_FINISHED < rl.GetTime() {
 
+                // regenerate
                 if REGEN_WORLD {
-                    free(this_chunk)
+                    delete_chunk(this_chunk)
                     this_chunk = generate_chunk(
                         rand.int63(), 
                         height_scale = CHUNK_HEIGHT_SCALE,
@@ -94,16 +99,26 @@ main :: proc() {
                 end_coord = random_ground_coord(this_chunk)
 
                 a_star_cleanup(path)
+                a_star_cleanup(best_path)
 
                 path = a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, ITER_ABORT_THRESHOLD)
+                best_path = a_star_create(this_chunk, start_coord, end_coord, 0)
+                a_star_complete(best_path)
+
             }
 
             display_chunk(this_chunk)
+
+            display_path(best_path, DRAW_SECONDARY_PATH, SECONDARY_PATH_HEIGHT, rl.BLUE)
+
             display_path(path, DRAW_SECONDARY_PATH, SECONDARY_PATH_HEIGHT)
+            display_visited(path, DRAW_SECONDARY_PATH, SECONDARY_PATH_HEIGHT)
+            display_waypoints(path, DRAW_SECONDARY_PATH, SECONDARY_PATH_HEIGHT)
+
 
         rl.EndMode3D()
 
-        rl.DrawText("status: ", 10, 10, 20, rl.RAYWHITE);
+        rl.DrawText("status: ", 10, 10, 20, rl.LIGHTGRAY);
         status_color := rl.LIGHTGRAY
         if has_failed(path) {
             status_color = rl.RED
@@ -117,6 +132,12 @@ main :: proc() {
         rl.DrawText(fmt.ctprintf("nodes explored: %d (%.1f%% of world)", len(path.came_from), f64(len(path.came_from))*100/f64(CHUNK_DIM_X*CHUNK_DIM_Y)), 10, 70, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("iterations: %d / %d", path.iteration_count, ITER_ABORT_THRESHOLD), 10, 90, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("iterations/sec: %d", rl.GetFPS()*ITER_PER_FRAME), 10, 110, 20, rl.RAYWHITE);
+        if has_succeeded(best_path) {
+            rl.DrawText(fmt.ctprintf("diff from best path: %.2fm", path_distance(path)-path_distance(best_path)), 10, 130, 20, rl.RAYWHITE);
+            rl.DrawText(fmt.ctprintf("a* iteration efficiency: x%.1f (%d -> %d)", f64(best_path.iteration_count)/f64(path.iteration_count), best_path.iteration_count, path.iteration_count), 10, 150, 20, rl.RAYWHITE);
+        } else {
+            rl.DrawText("(no path available)", 10, 130, 20, rl.GRAY);
+        }
 
         rl.DrawText("start:", 10, 200, 20, rl.RAYWHITE);
         rl.DrawText(fmt.ctprintf("%v", path.start), 80, 200, 20, rl.RAYWHITE);

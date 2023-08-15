@@ -53,6 +53,10 @@ generate_chunk :: proc(seed: i64, height_scale, threshold: f32, noise_scale: f64
     return
 }
 
+delete_chunk :: proc(ch: ^chunk) {
+    free(ch)
+}
+
 display_chunk :: proc(ch: ^chunk) {
     for x in i32(0)..<CHUNK_DIM_X {
     for y in i32(0)..<CHUNK_DIM_Y {
