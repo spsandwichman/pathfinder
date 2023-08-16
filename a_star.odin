@@ -119,7 +119,7 @@ a_star_iter :: proc(info: ^a_star_instance) {
     return
 }
 
-a_star_cleanup :: proc(info: ^a_star_instance) {
+a_star_destroy :: proc(info: ^a_star_instance) {
     delete(info.path)
     delete(info.came_from)
     delete(info.g_score)
@@ -223,7 +223,7 @@ display_waypoints :: proc(path: ^a_star_instance, secondary: bool, secondary_off
 display_path :: proc(path: ^a_star_instance, secondary: bool, secondary_offset: i32, color_override : rl.Color = {0,0,0,0}) {
 
     // path traversed
-    if path.status == .exploring || has_succeeded(path) {
+    if !has_failed(path) {
         for i in 0..<len(path.path)-1 {
             seg_start := path.path[i]
             seg_end   := path.path[i+1]

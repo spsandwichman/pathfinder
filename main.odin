@@ -14,6 +14,8 @@ DRAW_SECONDARY_PATH   :: true
 SECONDARY_PATH_HEIGHT :: 15
 DRAW_ONLY_TOP         :: false
 
+// higher heuristic weights decreases computational load
+// but also increases overall path distance (creates suboptimal paths)
 HEURISTIC_WEIGHT     :: 1.5
 ITER_ABORT_THRESHOLD :: 1500
 ITER_PER_FRAME       :: 1
@@ -98,8 +100,8 @@ main :: proc() {
 
                 end_coord = random_ground_coord(this_chunk)
 
-                a_star_cleanup(path)
-                a_star_cleanup(best_path)
+                a_star_destroy(path)
+                a_star_destroy(best_path)
 
                 path = a_star_create(this_chunk, start_coord, end_coord, HEURISTIC_WEIGHT, ITER_ABORT_THRESHOLD)
                 best_path = a_star_create(this_chunk, start_coord, end_coord, 0)
